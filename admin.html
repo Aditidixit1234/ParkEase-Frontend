@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Admin Dashboard</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    margin:0;
+    display:flex;
+    font-family: 'Segoe UI', sans-serif;
+    background:#0f172a;
+    color:white;
+}
+.sidebar {
+    width:220px;
+    background:#020617;
+    height:100vh;
+    padding:20px;
+}
+.sidebar p {
+    cursor:pointer;
+    padding:10px;
+    border-radius:8px;
+}
+.sidebar p:hover {
+    background:#1e293b;
+}
+.main {
+    flex:1;
+    padding:20px;
+}
+.section { display:none; }
+.active { display:block; }
+.card {
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(10px);
+    padding:20px;
+    border-radius:15px;
+    margin-bottom:20px;
+}
+.chart-box { height:350px; }
+canvas {
+    width:100% !important;
+    height:100% !important;
+    filter: drop-shadow(0 0 15px rgba(0,198,255,0.6));
+}
+input {
+    padding:10px;
+    border-radius:8px;
+    border:none;
+}
+button {
+    padding:8px 12px;
+    border:none;
+    border-radius:6px;
+    background:#00c6ff;
+    cursor:pointer;
+}
+table {
+    width:100%;
+    border-collapse: collapse;
+    text-align:center;
+}
+th, td {
+    padding:12px;
+}
+thead {
+    border-bottom:2px solid rgba(255,255,255,0.2);
+}
+tbody tr {
+    background: rgba(255,255,255,0.05);
+    border-radius:10px;
+}
+.active-status {
+    color:#00ffcc;
+    font-weight:bold;
+}
+.expiring-status {
+    color:orange;
+    font-weight:bold;
+}
+.stats {
+    display:flex;
+    gap:20px;
+}
+
+/* ── NEW: detection result cards ── */
+.detect-results {
+    display:flex;
+    gap:16px;
+    margin-top:16px;
+    flex-wrap:wrap;
+}
+.detect-card {
+    flex:1;
+    min-width:100px;
+    background:rgba(255,255,255,0.05);
+    border-radius:12px;
+    padding:16px;
+    text-align:center;
+    border:1px solid rgba(255,255,255,0.1);
+}
+.detect-card .label {
+    font-size:13px;
+    color:rgba(255,255,255,0.5);
+    margin-bottom:8px;
+}
+.detect-card .value {
+    font-size:28px;
+    font-weight:bold;
+}
+.detect-card.total  .value { color:#00c6ff; }
+.detect-card.occupied .value { color:#ff6b6b; }
+.detect-card.empty  .value { color:#00ffcc; }
+</style>
+</head>
+
+<body>
+
+<div class="sidebar">
+    <h2><i class="fas fa-car"></i> Admin</h2>
+    <p onclick="show('dashboard')"><i class="fas fa-chart-line"></i> Dashboard</p>
+    <p onclick="show('parking')"><i class="fas fa-square-parking"></i> Parking</p>
+    <p onclick="show('users')"><i class="fas fa-users"></i> Users</p>
+</div>
+
+<div class="main">
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="section active">
+<h1><i class="fas fa-chart-line"></i> Dashboard</h1>
+<div class="card">
+    <h3><i class="fas fa-car"></i> Total Vehicles</h3>
+    <p id="total">0</p>
+</div>
+<div class="card">
+    <h3><i class="fas fa-building"></i> Most Used Campus</h3>
+    <p id="mostUsed">-</p>
+</div>
+<div class="card">
+    <h3><i class="fas fa-percentage"></i> Average Occupancy</h3>
+    <p id="avg">0%</p>
+</div>
+<div class="card">
+    <h2><i class="fas fa-chart-bar"></i> Occupancy Chart</h2>
+    <div class="chart-box">
+        <canvas id="barChart"></canvas>
+    </div>
+</div>
+</div>
+
+<!-- PARKING -->
+<div id="parking" class="section">
+<h1><i class="fas fa-square-parking"></i> Parking</h1>
+
+<div class="card">
+    <input type="file" id="file" accept="image/*">
+    <button onclick="upload()"><i class="fas fa-upload"></i> Upload</button>
+
+    <!-- ── NEW: result area (hidden until detection runs) ── -->
+    <div id="detectResults" class="detect-results" style="display:none;">
+        <div class="detect-card total">
+            <div class="label"><i class="fas fa-th"></i> Total Slots</div>
+            <div class="value" id="detTotal">0</div>
+        </div>
+        <div class="detect-card occupied">
+            <div class="label"><i class="fas fa-car"></i> Occupied</div>
+            <div class="value" id="detOccupied">0</div>
+        </div>
+        <div class="detect-card empty">
+            <div class="label"><i class="fas fa-parking"></i> Empty</div>
+            <div class="value" id="detEmpty">0</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <input id="campus" placeholder="campus6">
+    <input id="slotsInput" placeholder="120">
+    <button onclick="updateSlots()"><i class="fas fa-pen"></i> Update Slots</button>
+</div>
+
+<div class="card" id="slots"></div>
+</div>
+
+<!-- USERS -->
+<div id="users" class="section">
+<h1><i class="fas fa-user-gear"></i> User Management</h1>
+<div class="card stats">
+    <div class="card">
+        <h3><i class="fas fa-users"></i> Total Users</h3>
+        <p id="totalUsers">0</p>
+    </div>
+    <div class="card">
+        <h3><i class="fas fa-user-graduate"></i> Students</h3>
+        <p id="students">0</p>
+    </div>
+    <div class="card">
+        <h3><i class="fas fa-chalkboard-teacher"></i> Teachers</h3>
+        <p id="teachers">0</p>
+    </div>
+    <div class="card">
+        <h3><i class="fas fa-clock"></i> Active Reservations</h3>
+        <p id="activeRes">0</p>
+    </div>
+</div>
+<div class="card">
+    <input id="searchUser" placeholder="Search user..." style="width:100%;" onkeyup="filterUsers()">
+</div>
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>User</th><th>Role</th><th>Campus</th>
+<th>Status</th><th>Time Left</th><th>Action</th>
+</tr>
+</thead>
+<tbody id="resTable"></tbody>
+</table>
+</div>
+</div>
+
+</div>
+
+<script>
+
+let chart;
+
+function show(sec){
+    document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
+    document.getElementById(sec).classList.add("active");
+}
+
+function loadData(){
+    fetch("http://127.0.0.1:8000/get-data")
+    .then(res => res.json())
+    .then(data => {
+
+        let totalSlots = {
+            campus6:120,campus12:80,campus13:100,
+            campus14:60,campus15:90,campus25:70
+        };
+
+        let labels=[], values=[];
+        let total=0, max=0, most="", avg=0;
+
+        let slotDiv=document.getElementById("slots");
+        slotDiv.innerHTML="";
+
+        for(let c in data){
+            let load=(data[c].morning+data[c].afternoon+data[c].evening)/3;
+            let percent=(load/totalSlots[c])*100;
+            let available=totalSlots[c]-load;
+
+            labels.push(c);
+            values.push(percent.toFixed(2));
+
+            total+=load;
+            avg+=percent;
+
+            if(load>max){ max=load; most=c; }
+
+            let status=available<=0?"FULL":`${available.toFixed(0)}/${totalSlots[c]}`;
+            slotDiv.innerHTML+=`<p>${c} → ${status}</p>`;
+        }
+
+        avg=avg/labels.length;
+
+        document.getElementById("total").innerText=total.toFixed(0);
+        document.getElementById("mostUsed").innerText=most;
+        document.getElementById("avg").innerText=avg.toFixed(0)+"%";
+
+        if(!chart){ renderChart(labels, values); }
+        else { chart.data.datasets[0].data=values; chart.update(); }
+    });
+}
+
+function renderChart(labels, values){
+    let ctx=document.getElementById("barChart").getContext("2d");
+    chart=new Chart(ctx,{
+        type:"bar",
+        data:{
+            labels:labels,
+            datasets:[{
+                data:values,
+                backgroundColor:"#00c6ff",
+                borderRadius:10
+            }]
+        }
+    });
+}
+
+function loadReservations(){
+    fetch("http://127.0.0.1:8000/get-reservations")
+    .then(res => res.json())
+    .then(data => {
+
+        let table=document.getElementById("resTable");
+        table.innerHTML="";
+        let students=0, teachers=0;
+
+        document.getElementById("activeRes").innerText=data.length;
+
+        data.forEach(r=>{
+            if(r.role==="student") students++;
+            else if(r.role==="teacher") teachers++;
+
+            let statusClass=r.time<30?"expiring-status":"active-status";
+            let statusText=r.time<30?"Expiring":"Active";
+
+            let row=document.createElement("tr");
+            row.innerHTML=`
+            <td>${r.user}</td>
+            <td>${r.role}</td>
+            <td>${r.campus}</td>
+            <td class="${statusClass}">${statusText}</td>
+            <td id="t-${r.user}">${r.time}s</td>
+            <td><button onclick="cancelRes('${r.user}')">Cancel</button></td>
+            `;
+            table.appendChild(row);
+            startTimer(`t-${r.user}`, r.time);
+        });
+
+        document.getElementById("students").innerText=students;
+        document.getElementById("teachers").innerText=teachers;
+        document.getElementById("totalUsers").innerText=data.length;
+    });
+}
+
+function startTimer(id, sec){
+    let el=document.getElementById(id);
+    let i=setInterval(()=>{
+        sec--;
+        if(sec<=0){ el.innerText="Expired"; clearInterval(i); }
+        else { el.innerText=sec+"s"; }
+    },1000);
+}
+
+function cancelRes(user){
+    fetch(`http://127.0.0.1:8000/cancel-reservation?user=${user}`,{method:"POST"})
+    .then(()=>loadReservations());
+}
+
+function filterUsers(){
+    let input=document.getElementById("searchUser").value.toLowerCase();
+    let rows=document.querySelectorAll("#resTable tr");
+    rows.forEach(r=>{
+        let user=r.children[0].innerText.toLowerCase();
+        r.style.display=user.includes(input)?"":"none";
+    });
+}
+
+/* ── CHANGED: upload now hits /detect-parking and shows results ── */
+function upload(){
+    let file=document.getElementById("file").files[0];
+    if(!file){ alert("Please select an image first."); return; }
+
+    let formData=new FormData();
+    formData.append("file", file);
+
+    fetch("http://127.0.0.1:8000/upload-image",{
+        method:"POST",
+        body:formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        // data should be: { total: 120, occupied: 80, empty: 40 }
+        document.getElementById("detTotal").innerText    = data.total_slots    ?? 0;
+        document.getElementById("detOccupied").innerText = data.vehicles ?? 0;
+        document.getElementById("detEmpty").innerText    = data.empty_slots    ?? 0;
+        document.getElementById("detectResults").style.display = "flex";
+    })
+    .catch(err => {
+        alert("Detection failed: " + err.message);
+    });
+}
+
+function updateSlots(){
+    let campus=document.getElementById("campus").value;
+    let slots=document.getElementById("slotsInput").value;
+    fetch(`http://127.0.0.1:8000/update-slots?campus=${campus}&slots=${slots}`,{method:"POST"})
+    .then(()=>alert("Updated"));
+}
+
+loadData();
+loadReservations();
+setInterval(loadData,5000);
+setInterval(loadReservations,5000);
+
+</script>
+</body>
+</html>

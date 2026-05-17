@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Smart Parking Dashboard</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css"/>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: white;
+    margin: 0;
+}
+
+h1 {
+    text-align: center;
+    padding: 20px;
+}
+
+.top-box {
+    margin: 20px;
+    padding: 15px;
+    border-radius: 15px;
+    background: rgba(255,255,255,0.1);
+}
+
+.container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px,1fr));
+    gap: 20px;
+    padding: 20px;
+}
+
+.card {
+    background: rgba(255,255,255,0.1);
+    padding: 20px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+    transition: 0.4s;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+}
+
+.card:hover { transform: translateY(-8px); }
+
+.best {
+    border: 2px solid #00ffcc;
+    box-shadow: 0 0 20px #00ffcc;
+}
+
+button {
+    margin-top: 10px;
+    padding: 10px;
+    width: 100%;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(45deg, #00ffcc, #00c6ff);
+    cursor: pointer;
+    font-weight: bold;
+    color: #0f2027;
+}
+
+button:disabled {
+    background: #555 !important;
+    color: #aaa !important;
+    cursor: not-allowed;
+}
+
+#map {
+    height: 400px;
+    border-radius: 15px;
+    z-index: 1;
+}
+
+.leaflet-container {
+    background: #1a1a2e !important;
+}
+
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+    filter: none !important;
+}
+
+.red    { color: #ff4d4d; }
+.orange { color: #ffa500; }
+.green  { color: #00ffcc; }
+.blue   { color: #4da6ff; }
+
+#toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.85);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: 0.4s;
+    z-index: 9999;
+    max-width: 300px;
+}
+
+#toast.show     { opacity: 1; transform: translateY(0); }
+.toast-success  { border-left: 5px solid #00ffcc; }
+.toast-info     { border-left: 5px solid #00c6ff; }
+.toast-error    { border-left: 5px solid #ff4d4d; }
+
+#myReservationBox {
+    display: none;
+    background: rgba(0,255,204,0.1);
+    border: 1px solid #00ffcc;
+    border-radius: 12px;
+    padding: 15px;
+    margin: 5px 0 10px;
+}
+
+#myReservationBox button {
+    background: linear-gradient(45deg, #ff4d4d, #ff6b6b);
+    color: white;
+}
+</style>
+</head>
+
+<body>
+
+<div id="toast"></div>
+
+<div id="mainContent">
+
+<h1><i class="fas fa-car"></i> Live Parking Dashboard</h1>
+
+<div class="top-box">
+    <h3><i class="fas fa-video"></i> Live Parking Feed (Simulated)</h3>
+    <p style="color:lightgreen;">● LIVE</p>
+    <img id="cameraFeed" style="width:100%; border-radius:15px;">
+</div>
+
+<div class="top-box" id="recommendation"></div>
+<div class="top-box" id="insight"></div>
+
+<!-- MY RESERVATION -->
+<div class="top-box">
+    <h3><i class="fas fa-ticket"></i> My Reservation</h3>
+    <div id="myReservationBox">
+        <p id="myResInfo"></p>
+        <button onclick="cancelMyReservation()">
+            <i class="fas fa-xmark"></i> Cancel My Reservation
+        </button>
+    </div>
+    <p id="noResMsg" style="color:rgba(255,255,255,0.5);">No active reservation.</p>
+</div>
+
+<div class="top-box">
+    <button onclick="startVoice()">
+        <i class="fas fa-microphone"></i> Find Best Parking
+    </button>
+</div>
+
+<!-- MAP -->
+<div class="top-box">
+    <h3><i class="fas fa-map-location-dot"></i> Parking Map</h3>
+    <div id="map"></div>
+</div>
+
+<!-- NOTIFICATIONS -->
+<div class="top-box">
+    <h3><i class="fas fa-bell"></i> Notifications</h3>
+    <ul id="notifications"></ul>
+</div>
+
+<!-- CARDS -->
+<div class="container" id="container"></div>
+
+</div>
+
+<script>
+
+// ─── SESSION CHECK ────────────────────────────────────────
+let currentUser  = sessionStorage.getItem("parkingUser");
+let currentRole  = sessionStorage.getItem("parkingRole");
+let currentEmail = sessionStorage.getItem("parkingEmail");
+let currentPhone = sessionStorage.getItem("parkingPhone");
+let myReservation = null;
+
+if(!currentUser || !currentRole){
+    window.location.href = "login.html";
+}
+
+// ─── TOAST ───────────────────────────────────────────────
+function showToast(msg, type="success"){
+    let t = document.getElementById("toast");
+    t.className = "show toast-" + type;
+    t.innerHTML = msg;
+    setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+// ─── MAP SETUP ───────────────────────────────────────────
+const campusLocations = {
+    campus6:  [20.2961, 85.8245],
+    campus12: [20.2975, 85.8250],
+    campus13: [20.2980, 85.8260],
+    campus14: [20.2990, 85.8270],
+    campus15: [20.3000, 85.8280],
+    campus25: [20.3010, 85.8290]
+};
+
+let map = L.map('map', {
+    zoomControl: true,
+    scrollWheelZoom: true
+}).setView([20.2985, 85.8265], 15);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CartoDB',
+    subdomains: 'abcd',
+    maxZoom: 19
+}).addTo(map);
+
+let markers      = [];
+let routeControl;
+let userLocation = null;
+
+navigator.geolocation.getCurrentPosition(
+    pos => {
+        userLocation = [pos.coords.latitude, pos.coords.longitude];
+        L.circleMarker(userLocation, {
+            radius: 8,
+            color: '#00c6ff',
+            fillColor: '#00c6ff',
+            fillOpacity: 1,
+            weight: 3
+        }).addTo(map).bindPopup('<b>You are here</b>');
+    },
+    () => showToast("Enable location for navigation", "info")
+);
+
+// ─── CAMERA FEED ─────────────────────────────────────────
+let images = [
+    "../dataset/campus_6/morning/img1.jpg",
+    "../dataset/campus_6/morning/img2.jpg",
+    "../dataset/campus_6/morning/img3.jpg"
+];
+let imgIndex = 0;
+function simulateFeed(){
+    document.getElementById("cameraFeed").src = images[imgIndex];
+    imgIndex = (imgIndex + 1) % images.length;
+}
+setInterval(simulateFeed, 3000);
+simulateFeed();
+
+// ─── NAVIGATION ──────────────────────────────────────────
+function navigateToCampus(campus){
+    showToast(`<i class="fas fa-location-arrow"></i> Navigating to ${campus}`, "info");
+    if(!userLocation){ showToast("Getting your location...", "info"); return; }
+    if(routeControl) map.removeControl(routeControl);
+    routeControl = L.Routing.control({
+        waypoints: [
+            L.latLng(userLocation),
+            L.latLng(campusLocations[campus])
+        ]
+    }).addTo(map);
+    map.setView(campusLocations[campus], 16);
+}
+
+// ─── RESERVE ─────────────────────────────────────────────
+function reserve(campus){
+    if(myReservation){
+        showToast("You already reserved " + myReservation + ". Cancel it first.", "info");
+        return;
+    }
+
+    // only pass user + campus — backend reads role/email/phone from users.json
+    fetch(`http://127.0.0.1:8000/reserve?user=${currentUser}&campus=${campus}`, {
+        method: "POST"
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.success){
+            myReservation = campus;
+            showToast(`<i class="fas fa-circle-check"></i> ${data.message} | Slots left: ${data.slots_left}`, "success");
+            updateMyReservationBox();
+            loadData();
+        } else {
+            showToast(`<i class="fas fa-circle-xmark"></i> ${data.message}`, "error");
+        }
+    })
+    .catch(() => showToast("Server error. Is backend running?", "error"));
+}
+
+// ─── CANCEL RESERVATION ──────────────────────────────────
+function cancelMyReservation(){
+    if(!myReservation) return;
+    fetch(`http://127.0.0.1:8000/cancel-reservation?user=${currentUser}`, {
+        method: "POST"
+    })
+    .then(() => {
+        showToast("Reservation cancelled.", "info");
+        myReservation = null;
+        updateMyReservationBox();
+        loadData();
+    })
+    .catch(() => showToast("Server error.", "error"));
+}
+
+// ─── MY RESERVATION BOX ──────────────────────────────────
+function updateMyReservationBox(){
+    let box   = document.getElementById("myReservationBox");
+    let noMsg = document.getElementById("noResMsg");
+    let info  = document.getElementById("myResInfo");
+
+    if(myReservation){
+        box.style.display   = "block";
+        noMsg.style.display = "none";
+        info.innerHTML = `
+            <i class="fas fa-location-dot"></i>
+            <b>${myReservation}</b> —
+            Reserved by <b>${currentUser}</b> (${currentRole})
+        `;
+    } else {
+        box.style.display   = "none";
+        noMsg.style.display = "block";
+    }
+}
+
+// ─── LOAD DATA ───────────────────────────────────────────
+function loadData(){
+    fetch("http://127.0.0.1:8000/get-data")
+    .then(res => res.json())
+    .then(data => {
+
+        const totalSlots = {
+            campus6:120, campus12:80,  campus13:100,
+            campus14:60, campus15:90,  campus25:70
+        };
+
+        const eta = {
+            campus6:4,  campus12:6,  campus13:5,
+            campus14:10, campus15:7, campus25:8
+        };
+
+        let container = document.getElementById("container");
+        container.innerHTML = "";
+
+        let bestCampus    = "";
+        let bestScore     = -999;
+        let notifications = [];
+
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        for(let c in data){
+            let load      = (data[c].morning + data[c].afternoon + data[c].evening) / 3;
+            let available = totalSlots[c] - load;
+            let score     = available - eta[c];
+
+            if(score > bestScore){ bestScore = score; bestCampus = c; }
+
+            if(available <= 0)
+                notifications.push({priority:3, msg:`<li class="red"><i class="fas fa-circle-xmark"></i> ${c} FULL</li>`});
+            else if(available < 20)
+                notifications.push({priority:2, msg:`<li class="orange"><i class="fas fa-triangle-exclamation"></i> ${c} filling fast (${available.toFixed(0)})</li>`});
+            else if(available > 80)
+                notifications.push({priority:1, msg:`<li class="green"><i class="fas fa-circle-check"></i> ${c} many slots (${available.toFixed(0)})</li>`});
+
+            let color     = available <= 0 ? "#ff4d4d" : available < 20 ? "#ffa500" : "#00ffcc";
+            let ringColor = available <= 0 ? "#ff000088" : available < 20 ? "#ffa50088" : "#00ffcc44";
+
+            // glow ring
+            let ring = L.circleMarker(campusLocations[c], {
+                radius: 18,
+                color: ringColor,
+                fillColor: ringColor,
+                fillOpacity: 0.3,
+                weight: 1
+            }).addTo(map);
+            markers.push(ring);
+
+            // main dot
+            let marker = L.circleMarker(campusLocations[c], {
+                radius: 10,
+                color: color,
+                fillColor: color,
+                fillOpacity: 1,
+                weight: 2
+            }).addTo(map);
+
+            marker.bindPopup(`
+                <div style="color:#000;font-family:'Segoe UI';min-width:140px;">
+                <b style="font-size:15px;">${c}</b><br>
+                <span style="color:${available<=0?'#cc0000':available<20?'#cc6600':'#006600'};">
+                    ● ${available <= 0 ? 'FULL' : available.toFixed(0) + ' slots free'}
+                </span><br>
+                ETA: <b>${eta[c]} min</b><br>
+                Peak: ${data[c].peak}
+                </div>
+            `);
+
+            markers.push(marker);
+        }
+
+        notifications.push({priority:4, msg:`<li class="blue"><i class="fas fa-star"></i> Best: ${bestCampus}</li>`});
+        notifications.sort((a,b) => b.priority - a.priority);
+        document.getElementById("notifications").innerHTML =
+            notifications.slice(0,3).map(n => n.msg).join("");
+
+        document.getElementById("recommendation").innerHTML =
+            `<i class="fas fa-star"></i> Best Campus: <b>${bestCampus}</b> | ETA: ${eta[bestCampus]} min`;
+
+        document.getElementById("insight").innerHTML =
+            `<i class="fas fa-chart-line"></i> Recommended: <b>${bestCampus}</b>`;
+
+        // ── BUILD CARDS ──────────────────────────────────
+        for(let c in data){
+            let load      = (data[c].morning + data[c].afternoon + data[c].evening) / 3;
+            let available = Math.max(0, totalSlots[c] - load);
+            let isFull    = available <= 0;
+            let isMyRes   = myReservation === c;
+
+            let div = document.createElement("div");
+            div.className = "card" + (c === bestCampus ? " best" : "");
+
+            let reserveBtn = "";
+            if(isMyRes){
+                reserveBtn = `<button disabled style="opacity:0.8;">
+                    <i class="fas fa-circle-check"></i> Reserved by You
+                </button>`;
+            } else if(isFull){
+                reserveBtn = `<button disabled>
+                    <i class="fas fa-ban"></i> FULL
+                </button>`;
+            } else if(myReservation){
+                reserveBtn = `<button disabled>
+                    <i class="fas fa-lock"></i> Cancel current first
+                </button>`;
+            } else {
+                reserveBtn = `<button onclick="reserve('${c}')">
+                    <i class="fas fa-ticket"></i> Reserve
+                </button>`;
+            }
+
+            div.innerHTML = `
+            <h3>${c} ${c === bestCampus ? "<i class='fas fa-star' style='color:#00ffcc;'></i> BEST" : ""}</h3>
+            <p>Available Slots: <span id="slot-${c}">0</span></p>
+            <p>ETA: ${eta[c]} min</p>
+            <p>Peak: ${data[c].peak}</p>
+            ${reserveBtn}
+            <button onclick="navigateToCampus('${c}')">
+                <i class="fas fa-location-arrow"></i> Navigate
+            </button>
+            `;
+
+            container.appendChild(div);
+            animateSlots(`slot-${c}`, available);
+        }
+    })
+    .catch(() => showToast("Cannot reach server.", "error"));
+}
+
+// ─── SLOT COUNTER ANIMATION ──────────────────────────────
+function animateSlots(id, value){
+    let el = document.getElementById(id);
+    let current = 0;
+    let interval = setInterval(() => {
+        current++;
+        el.innerText = current;
+        if(current >= value) clearInterval(interval);
+    }, 10);
+}
+
+// ─── VOICE ───────────────────────────────────────────────
+function startVoice(){
+    let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.start();
+    recognition.onresult = function(){
+        showToast("Best option shown above", "info");
+    };
+}
+
+// ─── START ───────────────────────────────────────────────
+showToast(`Welcome, ${currentUser}!`, "success");
+loadData();
+setInterval(loadData, 5000);
+
+</script>
+</body>
+</html>
