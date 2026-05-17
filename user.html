@@ -191,7 +191,9 @@ let myReservation = null;
 if(!currentUser || !currentRole){
     window.location.href = "login.html";
 }
-
+if (!sessionStorage.getItem("loggedIn")) {
+    window.location.href = "login.html";
+}
 // ─── TOAST ───────────────────────────────────────────────
 function showToast(msg, type="success"){
     let t = document.getElementById("toast");
