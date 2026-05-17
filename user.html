@@ -182,18 +182,17 @@ button:disabled {
 <script>
 
 // ─── SESSION CHECK ────────────────────────────────────────
+// ✅ All reads from sessionStorage (matches what login.html sets)
 let currentUser  = sessionStorage.getItem("parkingUser");
 let currentRole  = sessionStorage.getItem("parkingRole");
 let currentEmail = sessionStorage.getItem("parkingEmail");
-let currentPhone = sessionStorage.getItem("parkingPhone");
 let myReservation = null;
 
-if(!currentUser || !currentRole){
+// ✅ Single consistent guard — redirect if any key is missing
+if (!currentUser || !currentRole || !sessionStorage.getItem("loggedIn")) {
     window.location.href = "login.html";
 }
-if (!sessionStorage.getItem("loggedIn")) {
-    window.location.href = "login.html";
-}
+
 // ─── TOAST ───────────────────────────────────────────────
 function showToast(msg, type="success"){
     let t = document.getElementById("toast");
@@ -276,7 +275,6 @@ function reserve(campus){
         return;
     }
 
-    // only pass user + campus — backend reads role/email/phone from users.json
     fetch(`http://127.0.0.1:8000/reserve?user=${currentUser}&campus=${campus}`, {
         method: "POST"
     })
@@ -372,7 +370,6 @@ function loadData(){
             let color     = available <= 0 ? "#ff4d4d" : available < 20 ? "#ffa500" : "#00ffcc";
             let ringColor = available <= 0 ? "#ff000088" : available < 20 ? "#ffa50088" : "#00ffcc44";
 
-            // glow ring
             let ring = L.circleMarker(campusLocations[c], {
                 radius: 18,
                 color: ringColor,
@@ -382,7 +379,6 @@ function loadData(){
             }).addTo(map);
             markers.push(ring);
 
-            // main dot
             let marker = L.circleMarker(campusLocations[c], {
                 radius: 10,
                 color: color,
